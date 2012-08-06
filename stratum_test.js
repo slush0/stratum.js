@@ -147,6 +147,7 @@ suite("stratum", function() {
         test("is an Adapter", function() {
             ok(new stratum.Connection.PollingAdapter() instanceof stratum.Connection.Adapter);
         });
+
         suite("sends requests", function() {
             var a;
             setup(function() {
@@ -165,6 +166,20 @@ suite("stratum", function() {
                 ok(typeof a.makeRequest.firstCall.args[2], "function");
             });
 
+        });
+
+        suite("XmlHttpRequests", function() {
+            var a, sandbox;
+            setup(function() {
+                sandbox = sinon.sandbox.create();
+                stratum.XmlHttpRequest = sinon.FakeXMLHttpRequest;
+                a = new stratum.Connection.PollingAdapter("url", null);
+            });
+            test("Content-Type", function() {
+                ok(typeof sinon.FakeXMLHttpRequest, "function");
+            });
+            teardown(function() {
+            });
         });
 
         suite("responses", function() {

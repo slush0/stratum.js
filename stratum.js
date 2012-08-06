@@ -116,7 +116,24 @@ stratum.util = (function() {
                 }
             }
             return msgObject;
-        }
+        },
+
+        isNode : function() {
+            return typeof module !== 'undefined' && module.exports;
+        },
+
+        isWebsocket : function() {
+            return typeof WebSocket !== 'undefined';
+        },
+
+        MockXmlHttpRequest : (function() {
+            function MockXmlHttpRequest() {}
+            MockXmlHttpRequest.prototype = {
+                open : function() {},
+                send : function() {}
+            };
+            return MockXmlHttpRequest;
+        }())
 
     }
 
@@ -178,8 +195,7 @@ stratum.Connection.PollingAdapter = (function() {
     };
 
     PollingAdapter.prototype.makeRequest = function(url, payload, callbackFunction) {
-        var request = new XMLHttpRequest();
-
+        var request = new stratum.XmlHttpRequest();
         request.onreadystatechange = function() {
             if (request.readyState==4) {
                 callbackFunction(request.responseText);
@@ -188,9 +204,6 @@ stratum.Connection.PollingAdapter = (function() {
             }
         };
 
-        request.open("POST", url, true);
-        request.setRequestHeader('Content-type', 'application/stratum');
-        request.setRequestHeader('Connection', 'close');
         request.open("GET", url, true);
         request.send(payload);
     };
@@ -200,18 +213,66 @@ stratum.Connection.PollingAdapter = (function() {
 }());
 
 
-
+stratum.XmlHttpRequest = stratum.util.MockXmlHttpRequest;
 
 stratum.Connection.create = (function() {
 
+    var config = {
+        url :  "california.stratum.bitcoin.cz",
+        socketPort : 3333,
+        webSocketPort : 8002
+    };
 
+    function createNodeSocketAdapter(config, passMessage) {
+        var net = require('net');
+        var adapter = {
+            server : net.connect(config.socketPort, config.url, function() {
+                console.log('Client connected');
+            }),
+            send : function(strMessage) {
+                this.server.write(strMessage + '\r\n');
+            }
+        };
+        adapter.server.on('data', function(data) {
+            passMessage(data);
+        });
+        return adapter;
+    };
 
-    function createAdapter() {
+    function createWebSocketAdapter(config, passMessage) {
+        var WebSocket = window.WebSocket || window.MozWebSocket;
+        var server = new WebSocket('ws://' + config.url + ':' + config.webSocketPort.toString());
+        server.onmessage = function (data) {
+            passMessage(data);
+        };
+        return {
+            send : function(message) {
+                server.send(message + '\r\n');
+            }
+        };
+    };
 
+    function createPollingAdapter(config, passMessage) {
+        var adapter = new stratum.PollingAdapter(config.url, function(data) {
+            passMessage(data);
+        });
+        return adapter;
     };
 
     return function create() {
-
+        var adapter = null;
+        function passMessage(strMessage) {
+            connection.acceptResponse(strMessage);
+        }
+        if (stratum.util.isNode()) {
+            adapter = createNodeSocketAdapter(config, passMessage);
+        } else if (stratum.util.isWebsocket()) {
+            adapter = createWebSocketAdapter(config, passMessage);
+        } else {
+            adapter = createPollingAdapter(config, passMessage);
+        }
+        var connection = new strophe.Connection(adapter);
+        return connection;
     };
 
 }());
