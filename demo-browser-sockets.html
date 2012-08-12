@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>Stratum browser websockets client demo</title>
+	<script src="stratum.js"> </script>
+</head>
+<body>
+	<script>
+
+	    var config = {
+	        url :  "california.stratum.bitcoin.cz",
+	        socketPort : 3333,
+	        webSocketPort : 8002
+	    };
+
+		var connection = stratum.Connection.create(config, function() {
+
+			connection.send("example.ping", "Lorem ipsum", function(echoedReply) {
+                console.log(echoedReply);
+			});
+
+            connection.send("example.pubsub.subscribe", 4);
+
+            connection.addEventListener("example.pubsub.time_event", function(time) {
+                console.log(time);
+            });
+
+            connection.send("example.throw_exception");
+
+        });
+	</script>
+</body>
+</html>

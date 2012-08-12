@@ -2,6 +2,12 @@ sinon = require('sinon');
 
 suite("stratum", function() {
 
+    var $clock;
+
+    setup(function() {
+        $clock = sinon.useFakeTimers();
+    });
+
     test("ns exists", function() {
         ok(stratum);
     });
@@ -21,7 +27,7 @@ suite("stratum", function() {
                 adapter = {send:function(strMessage) { adapterMessage = JSON.parse(strMessage); }};
                 var params = [1,2];
                 connection = new stratum.Connection(adapter);
-                connection.send("methodName", params);
+                connection.send("methodName", params[0], params[1]);
                 ok(adapterMessage.method, "methodName");
                 ok(Array.isArray(adapterMessage.params));
                 for (var i=0; i<params.length; i++) {
@@ -70,13 +76,22 @@ suite("stratum", function() {
             suite("throws exceptions", function() {
                 test("on malformed message", function() {
                     var c = new stratum.Connection();
-                    var E = stratum.Connection.MessageFormatError;
+                    var E = stratum.MessageFormatError;
                     prevent(function(){ c.acceptResponse(); }, E);
                     prevent(function(){ c.acceptResponse(null); }, E);
                     prevent(function(){ c.acceptResponse(undefined); }, E);
                     prevent(function(){ c.acceptResponse("Non-JSON string"); }, E);
                     prevent(function(){ c.acceptResponse("{}"); }, E);
                 });
+
+                test("of stratum.RpcException on error message (message has .error)", function() {
+                    console.log("");
+                    console.log("TEST");
+                    var c = new stratum.Connection();
+                    var E = stratum.RpcException;
+                    prevent(function(){ c.acceptResponse("{\"error\":[], \"id\":\"0\"}"); }, E);
+                });
+
             });
 
             test("accepts wellformed message", function() {
@@ -111,6 +126,14 @@ suite("stratum", function() {
                 ok(handler.called)
             });
 
+            test("handlers are .apply()-ed with response arguments", function() {
+                var notificationName = "some.notification.name";
+                c.addEventListener(notificationName, handler);
+                var responseParams = [1,2,3];
+                c.acceptResponse({id:null, method:"some.notification.name", params:responseParams});
+                ok(handler.calledWithExactly(1,2,3))
+            });
+
         });
 
         suite("matches messages by id", function() {
@@ -123,7 +146,7 @@ suite("stratum", function() {
            test("in simple request/response case", function() {
                client.send("method", [1,2,3], cb);
                var adapterMessageObj = JSON.parse(send.firstCall.args[0]);
-               client.acceptResponse({id:adapterMessageObj.id, data:"data"});
+               client.acceptResponse({id:adapterMessageObj.id, result:"data"});
                ok(cb.firstCall.args[0], "data");
            });
         });
@@ -169,21 +192,53 @@ suite("stratum", function() {
         });
 
         suite("XmlHttpRequests", function() {
-            var a, sandbox;
+
+            var MockXmlHttpRequest = (function() {
+                function MockXmlHttpRequest() {
+                    this.requestHeaders = {};
+                }
+                MockXmlHttpRequest.mockResponseHeaders = {}
+                MockXmlHttpRequest.prototype = {
+                    open : function() {},
+                    send : function() {},
+                    setRequestHeader : function(headerName, headerValue) {
+                        this.requestHeaders[headerName] = headerValue;
+                    },
+                    getResponseHeader : function(headerName) {
+                        return MockXmlHttpRequest.mockResponseHeaders[headerName];
+                    }
+                };
+                return MockXmlHttpRequest;
+            }());
+
+            var a, xhr;
             setup(function() {
-                sandbox = sinon.sandbox.create();
-                stratum.XmlHttpRequest = sinon.FakeXMLHttpRequest;
+                stratum.Connection.PollingAdapter.createXmlHttpRequest = function() {
+                    xhr = new MockXmlHttpRequest();
+                    return xhr;
+                };
                 a = new stratum.Connection.PollingAdapter("url", null);
             });
             test("Content-Type", function() {
-                ok(typeof sinon.FakeXMLHttpRequest, "function");
+                a.send("test");
+                ok(xhr.requestHeaders["Content-Type"], "application/stratum");
             });
             teardown(function() {
             });
         });
 
+        suite("periodic calling", function() {
+            var a;
+            setup(function() {
+                a = new stratum.Connection.PollingAdapter("url", null);
+            });
+            test("works", function() {
+
+            })
+        });
+
         suite("responses", function() {
-            var onResponse, makeRequest, a;
+            var onResponse, a;
             setup(function() {
                 onResponse = sinon.spy();
                 a = new stratum.Connection.PollingAdapter("url", onResponse);
@@ -221,6 +276,10 @@ suite("stratum", function() {
         test("responses are split by enter", function() {
             ok(stratum.util.parseResponseToMessages("foo\nbar\nbaz").length, 3);
         });
+        test("Messages are trimmed", function() {
+            ok(stratum.util.parseResponseToMessages("\nfoo\nbar\nbaz\n").length, 3);
+        });
+
     });
 
 });
